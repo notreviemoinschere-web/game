@@ -2,3 +2,16 @@
 .gamehub-form select {
     margin-right: 8px;
 }
+
+.wrap .gamehub-form {
+    margin-bottom: 16px;
+}
+
+.wrap .widefat th,
+.wrap .widefat td {
+    vertical-align: middle;
+}
+
+.wrap .notice {
+    border-left-color: #7f56d9;
+}
