@@ -35,6 +35,7 @@ class Shortcodes
         $atts = shortcode_atts([
             'type' => 'roulette',
             'qr_id' => '',
+            'token' => '',
         ], $atts);
 
         wp_enqueue_style('gamehub-frontend');
@@ -46,13 +47,22 @@ class Shortcodes
             $type = 'roulette';
         }
 
+        $qr_id = sanitize_text_field($atts['qr_id']);
+        if (!$qr_id) {
+            $qr_id = Utils::get_qr_id();
+        }
+        $token = sanitize_text_field($atts['token']);
+        if (!$token) {
+            $token = Utils::get_public_token();
+        }
+
         $data = [
             'type' => $type,
-            'qr_id' => sanitize_text_field($atts['qr_id']),
+            'qr_id' => $qr_id,
             'rest_url' => esc_url_raw(rest_url('gamehub/v1/play')),
             'lead_url' => esc_url_raw(rest_url('gamehub/v1/lead')),
             'nonce' => wp_create_nonce('wp_rest'),
-            'token' => sanitize_text_field($atts['token'] ?? ''),
+            'token' => $token,
             'test' => sanitize_text_field($atts['test'] ?? ''),
             'sig' => sanitize_text_field($atts['sig'] ?? ''),
         ];

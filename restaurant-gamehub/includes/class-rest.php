@@ -57,7 +57,10 @@ class Rest
         $user_key = sanitize_text_field($request->get_param('user_key'));
         $device_hash = sanitize_text_field($request->get_param('device_hash'));
         $token = sanitize_text_field($request->get_param('token'));
-        if ($token && !Utils::is_public_token_valid($token)) {
+        if (!$token) {
+            return new WP_Error('missing_token', 'Missing token', ['status' => 403]);
+        }
+        if (!Utils::is_public_token_valid($token)) {
             return new WP_Error('invalid_token', 'QR expired', ['status' => 403]);
         }
 
