@@ -28,7 +28,7 @@ class Rest
             'methods' => 'POST',
             'callback' => [self::class, 'handle_validate'],
             'permission_callback' => function () {
-                return current_user_can('gamehub_validate') || current_user_can('gamehub_manage');
+                return current_user_can('gamehub_validate') || current_user_can('manage_options');
             },
         ]);
     }
@@ -49,23 +49,15 @@ class Rest
     public static function handle_play(WP_REST_Request $request)
     {
         $type = sanitize_text_field($request->get_param('type'));
-        $allowed = ['roulette', 'scratch', 'quiz', 'pickbox', 'memory', 'stoptimer'];
+        $allowed = ['roulette', 'scratch', 'quiz'];
         if (!in_array($type, $allowed, true)) {
             return new WP_Error('invalid_type', 'Invalid game type', ['status' => 400]);
         }
         $qr_id = sanitize_text_field($request->get_param('qr_id'));
         $user_key = sanitize_text_field($request->get_param('user_key'));
         $device_hash = sanitize_text_field($request->get_param('device_hash'));
-        $ip = Utils::get_ip_address();
-        $user_agent = Utils::get_user_agent();
-        if (!$type) {
-            return new WP_Error('missing_type', 'Missing game type', ['status' => 400]);
-        }
-        if (self::is_rate_limited($ip)) {
-            return new WP_Error('rate_limited', 'Too many requests', ['status' => 429]);
-        }
 
-        if (!self::can_play($user_key, $device_hash, $qr_id)) {
+        if (!self::can_play($user_key, $device_hash)) {
             return new WP_Error('play_limit', 'Play limit reached', ['status' => 429]);
         }
 
@@ -75,21 +67,17 @@ class Rest
         }
 
         $result = 'lose';
-        $prize = null;
-        $variant = self::get_ab_variant($device_hash);
-        $win_prize = Utils::pick_prize($campaign_id, 'win', $variant);
-        if ($win_prize) {
+        $prize = Utils::pick_prize($campaign_id, 'win');
+        if ($prize) {
             $result = 'win';
-            $prize = $win_prize;
         } else {
-            $consolation = Utils::pick_prize($campaign_id, 'consolation', $variant);
-            if ($consolation) {
+            $prize = Utils::pick_prize($campaign_id, 'consolation');
+            if ($prize) {
                 $result = 'consolation';
-                $prize = $consolation;
             }
         }
 
-        $play_id = self::record_play($type, $campaign_id, $prize ? (int) $prize->id : null, $result, $qr_id, $user_key, $device_hash, $ip, $user_agent);
+        $play_id = self::record_play($type, $campaign_id, $prize ? (int) $prize->id : null, $result, $qr_id, $user_key, $device_hash);
         $claim = null;
         if ($prize) {
             $claim = self::create_claim($play_id, (int) $prize->id);
@@ -104,12 +92,6 @@ class Rest
             'expires_at' => $claim['expires_at'] ?? null,
         ];
 
-        Utils::send_webhook('play', [
-            'play_id' => $play_id,
-            'result' => $result,
-            'prize_id' => $response['prize_id'],
-        ]);
-
         return rest_ensure_response($response);
     }
 
@@ -120,14 +102,10 @@ class Rest
         $last = sanitize_text_field($request->get_param('last_name'));
         $email = sanitize_email($request->get_param('email'));
         $phone = sanitize_text_field($request->get_param('phone'));
-        $whatsapp = sanitize_text_field($request->get_param('whatsapp'));
         $campaign_id = (int) $request->get_param('campaign_id');
         $game = sanitize_text_field($request->get_param('game'));
-        $consents = $request->get_param('consents');
-        $ip = Utils::get_ip_address();
-        $user_key = self::build_user_key($email, $phone, $whatsapp);
 
-        if (!$first || !$last || (!$email && !$phone && !$whatsapp)) {
+        if (!$first || !$last || (!$email && !$phone)) {
             return new WP_Error('missing_fields', 'Required fields missing', ['status' => 400]);
         }
 
@@ -136,51 +114,24 @@ class Rest
             'last_name' => $last,
             'email' => $email,
             'phone' => $phone,
-            'whatsapp' => $whatsapp,
+            'whatsapp' => '',
             'source_game' => $game,
             'campaign_id' => $campaign_id ?: null,
-            'user_key' => $user_key,
+            'user_key' => $email ? hash('sha256', strtolower(trim($email))) : '',
             'created_at' => Utils::now_mysql(),
         ]);
 
-        $lead_id = (int) $wpdb->insert_id;
-        self::store_consent($lead_id, 'necessary', true, Utils::get_option('consent_text', ''), Utils::get_option('consent_version', 'v1'), 'gamehub', $ip);
-        if (is_array($consents)) {
-            foreach ($consents as $type => $value) {
-                $text = '';
-                if ($type === 'newsletter') {
-                    $text = Utils::get_option('marketing_email_text', '');
-                }
-                if ($type === 'whatsapp') {
-                    $text = Utils::get_option('marketing_sms_text', '');
-                }
-                self::store_consent($lead_id, sanitize_text_field($type), (bool) $value, $text, Utils::get_option('consent_version', 'v1'), 'gamehub', $ip);
-            }
-        }
-
-        Utils::send_webhook('lead', [
-            'lead_id' => $lead_id,
-            'first_name' => $first,
-            'last_name' => $last,
-            'email' => $email,
-            'phone' => $phone,
-            'whatsapp' => $whatsapp,
-        ]);
-
-        return rest_ensure_response(['lead_id' => $lead_id]);
+        return rest_ensure_response(['lead_id' => (int) $wpdb->insert_id]);
     }
 
     public static function handle_validate(WP_REST_Request $request)
     {
-        global $wpdb;
         $code = sanitize_text_field($request->get_param('claim_code'));
         $token = sanitize_text_field($request->get_param('claim_token'));
         if (!$code) {
             return new WP_Error('missing_code', 'Missing code', ['status' => 400]);
         }
-
-        $table = DB::table('claims');
-        $claim = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$table} WHERE claim_code = %s", $code));
+        $claim = DB::get_claim_by_code($code);
         if (!$claim) {
             return new WP_Error('invalid_code', 'Invalid code', ['status' => 404]);
         }
@@ -191,30 +142,13 @@ class Rest
             return new WP_Error('already_used', 'Code already used', ['status' => 409]);
         }
         if (strtotime($claim->expires_at) < time()) {
-            $wpdb->update($table, ['status' => 'expired'], ['id' => $claim->id]);
             return new WP_Error('expired', 'Code expired', ['status' => 410]);
         }
-
-        $wpdb->update($table, [
-            'status' => 'used',
-            'used_at' => Utils::now_mysql(),
-            'staff_user_id' => get_current_user_id(),
-        ], ['id' => $claim->id]);
-
+        DB::mark_claim_used($code, get_current_user_id());
         return rest_ensure_response(['status' => 'used']);
     }
 
-    private static function record_play(
-        string $type,
-        int $campaign_id,
-        ?int $prize_id,
-        string $result,
-        string $qr_id,
-        ?string $user_key,
-        ?string $device_hash,
-        ?string $ip,
-        ?string $user_agent
-    ): int
+    private static function record_play(string $type, int $campaign_id, ?int $prize_id, string $result, string $qr_id, string $user_key, string $device_hash): int
     {
         global $wpdb;
         $wpdb->insert(DB::table('plays'), [
@@ -227,12 +161,12 @@ class Rest
             'qr_id' => $qr_id ?: null,
             'user_key' => $user_key ?: null,
             'device_hash' => $device_hash ?: null,
-            'ip_address' => $ip ?: null,
-            'user_agent' => $user_agent ?: null,
+            'ip_address' => Utils::get_ip_address(),
+            'user_agent' => Utils::get_user_agent(),
             'created_at' => Utils::now_mysql(),
         ]);
 
-        if ($prize_id) {
+        if ($prize_id && !Utils::is_test_mode()) {
             $wpdb->query(
                 $wpdb->prepare(
                     "UPDATE " . DB::table('prizes') . " SET remaining = IF(remaining IS NULL, remaining, GREATEST(remaining - 1, 0)) WHERE id = %d",
@@ -247,8 +181,10 @@ class Rest
     private static function create_claim(int $play_id, int $prize_id): array
     {
         global $wpdb;
-        $expires = gmdate('Y-m-d H:i:s', time() + Utils::get_claim_expiry_hours() * HOUR_IN_SECONDS);
-        $code = Utils::generate_claim_code();
+        $prize = $wpdb->get_row($wpdb->prepare(\"SELECT expiry_days FROM \" . DB::table('prizes') . \" WHERE id = %d\", $prize_id));
+        $hours = $prize && $prize->expiry_days ? ((int) $prize->expiry_days * 24) : Utils::get_claim_expiry_hours();
+        $expires = gmdate('Y-m-d H:i:s', time() + $hours * HOUR_IN_SECONDS);
+        $code = Utils::generate_claim_code(Utils::is_test_mode());
         $token = Utils::sign_claim_token($code, $play_id);
 
         $wpdb->insert(DB::table('claims'), [
@@ -268,126 +204,31 @@ class Rest
         ];
     }
 
-    private static function store_consent(int $lead_id, string $type, bool $granted, string $text, string $version, string $source, string $ip): void
+    private static function can_play(string $user_key, string $device_hash): bool
     {
         global $wpdb;
-        $wpdb->insert(DB::table('consents'), [
-            'lead_id' => $lead_id,
-            'consent_type' => $type,
-            'granted' => (int) $granted,
-            'consent_text' => $text,
-            'consent_version' => $version,
-            'source' => $source,
-            'ip_address' => $ip,
-            'proof' => wp_json_encode(['ip' => $ip]),
-            'created_at' => Utils::now_mysql(),
-        ]);
-    }
-
-    private static function is_rate_limited(string $ip): bool
-    {
-        if (!$ip) {
-            return false;
-        }
-        $window = max(1, (int) Utils::get_option('rate_limit_window', 10));
-        $max = max(5, (int) Utils::get_option('rate_limit_max', 30));
-        $key = 'gamehub_rl_' . md5($ip);
-        $count = (int) get_transient($key);
-        if ($count >= $max) {
+        $hours = (int) Utils::get_option('play_limit_hours', 24);
+        if ($hours <= 0) {
             return true;
         }
-        set_transient($key, $count + 1, $window * MINUTE_IN_SECONDS);
-        return false;
-    }
-
-    private static function can_play(?string $user_key, ?string $device_hash, ?string $qr_id): bool
-    {
-        global $wpdb;
-        $hours = max(1, (int) Utils::get_option('play_limit_hours', 24));
         $since = gmdate('Y-m-d H:i:s', time() - $hours * HOUR_IN_SECONDS);
         $table = DB::table('plays');
-
-        $identifier = $user_key ?: $device_hash;
-        if ($identifier) {
+        if ($user_key) {
             $count = (int) $wpdb->get_var(
-                $wpdb->prepare(
-                    \"SELECT COUNT(*) FROM {$table} WHERE (user_key = %s OR device_hash = %s) AND created_at >= %s\",
-                    $user_key ?: '',
-                    $device_hash ?: '',
-                    $since
-                )
+                $wpdb->prepare("SELECT COUNT(*) FROM {$table} WHERE user_key = %s AND created_at >= %s", $user_key, $since)
             );
             if ($count > 0) {
                 return false;
             }
         }
-
-        $limit_qr = (int) Utils::get_option('limit_per_qr_day', 0);
-        if ($qr_id && $limit_qr > 0) {
-            $day_since = gmdate('Y-m-d H:i:s', strtotime('-1 day'));
+        if ($device_hash) {
             $count = (int) $wpdb->get_var(
-                $wpdb->prepare(
-                    \"SELECT COUNT(*) FROM {$table} WHERE qr_id = %s AND created_at >= %s\",
-                    $qr_id,
-                    $day_since
-                )
+                $wpdb->prepare("SELECT COUNT(*) FROM {$table} WHERE device_hash = %s AND created_at >= %s", $device_hash, $since)
             );
-            if ($count >= $limit_qr) {
+            if ($count > 0) {
                 return false;
             }
         }
-
-        $limit_hour = (int) Utils::get_option('limit_per_hour', 0);
-        if ($limit_hour > 0) {
-            $hour_since = gmdate('Y-m-d H:i:s', strtotime('-1 hour'));
-            $count = (int) $wpdb->get_var(
-                $wpdb->prepare(
-                    \"SELECT COUNT(*) FROM {$table} WHERE created_at >= %s\",
-                    $hour_since
-                )
-            );
-            if ($count >= $limit_hour) {
-                return false;
-            }
-        }
-
-        $limit_weekdays = Utils::get_option('limit_weekdays', []);
-        if (is_array($limit_weekdays) && !empty($limit_weekdays)) {
-            $weekday = (int) gmdate('N');
-            if (in_array($weekday, array_map('intval', $limit_weekdays), true) === false) {
-                return false;
-            }
-        }
-
-        if ($device_hash && $user_key) {
-            $threshold = max(2, (int) Utils::get_option('anti_double_threshold', 4));
-            $distinct = (int) $wpdb->get_var(
-                $wpdb->prepare(
-                    \"SELECT COUNT(DISTINCT user_key) FROM {$table} WHERE device_hash = %s AND created_at >= %s\",
-                    $device_hash,
-                    gmdate('Y-m-d H:i:s', strtotime('-7 days'))
-                )
-            );
-            if ($distinct >= $threshold) {
-                return false;
-            }
-        }
-
         return true;
-    }
-
-    private static function get_ab_variant(?string $device_hash): ?string
-    {
-        if (!Utils::get_option('ab_testing', false)) {
-            return null;
-        }
-        $hash = $device_hash ?: uniqid('gh', true);
-        return (crc32($hash) % 2 === 0) ? 'A' : 'B';
-    }
-
-    private static function build_user_key(string $email, string $phone, string $whatsapp): string
-    {
-        $raw = $email ?: ($whatsapp ?: $phone);
-        return $raw ? hash('sha256', strtolower(trim($raw))) : '';
     }
 }

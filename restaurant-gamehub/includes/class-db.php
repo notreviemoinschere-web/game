@@ -19,7 +19,6 @@ class DB
             'leads' => $prefix . 'leads',
             'consents' => $prefix . 'consents',
             'qr_codes' => $prefix . 'qr_codes',
-            'audit' => $prefix . 'audit',
         ];
         return $tables[$key] ?? '';
     }
@@ -48,9 +47,7 @@ class DB
                 KEY game_type (game_type),
                 KEY campaign_id (campaign_id),
                 KEY prize_id (prize_id),
-                KEY qr_id (qr_id),
-                KEY user_key (user_key),
-                KEY device_hash (device_hash)
+                KEY qr_id (qr_id)
             ) {$charset};",
             "CREATE TABLE " . self::table('campaigns') . " (
                 id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -73,13 +70,12 @@ class DB
                 weight DECIMAL(10,4) NOT NULL DEFAULT 1,
                 stock BIGINT UNSIGNED NULL,
                 remaining BIGINT UNSIGNED NULL,
-                variant VARCHAR(2) NULL,
                 active TINYINT(1) NOT NULL DEFAULT 1,
+                expiry_days INT NULL,
                 created_at DATETIME NOT NULL,
                 PRIMARY KEY (id),
                 KEY campaign_id (campaign_id),
-                KEY type (type),
-                KEY variant (variant)
+                KEY type (type)
             ) {$charset};",
             "CREATE TABLE " . self::table('claims') . " (
                 id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -108,8 +104,7 @@ class DB
                 user_key VARCHAR(190) NULL,
                 created_at DATETIME NOT NULL,
                 PRIMARY KEY (id),
-                KEY campaign_id (campaign_id),
-                KEY user_key (user_key)
+                KEY campaign_id (campaign_id)
             ) {$charset};",
             "CREATE TABLE " . self::table('consents') . " (
                 id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -135,15 +130,89 @@ class DB
                 PRIMARY KEY (id),
                 UNIQUE KEY qr_id (qr_id)
             ) {$charset};",
-            "CREATE TABLE " . self::table('audit') . " (
-                id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-                admin_user_id BIGINT UNSIGNED NULL,
-                action VARCHAR(120) NOT NULL,
-                context TEXT NULL,
-                created_at DATETIME NOT NULL,
-                PRIMARY KEY (id),
-                KEY action (action)
-            ) {$charset};",
         ];
+    }
+
+    public static function get_stats(): array
+    {
+        global $wpdb;
+        $plays_table = self::table('plays');
+        $claims_table = self::table('claims');
+        $leads_table = self::table('leads');
+        $today = gmdate('Y-m-d');
+        return [
+            'today' => (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$plays_table} WHERE DATE(created_at) = %s", $today)),
+            'total' => (int) $wpdb->get_var("SELECT COUNT(*) FROM {$plays_table}"),
+            'wins' => (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$plays_table} WHERE result = %s", 'win')),
+            'consolation' => (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$plays_table} WHERE result = %s", 'consolation')),
+            'leads' => (int) $wpdb->get_var("SELECT COUNT(*) FROM {$leads_table}"),
+            'claimed' => (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$claims_table} WHERE status = %s", 'used')),
+        ];
+    }
+
+    public static function get_prizes_by_type(string $type): array
+    {
+        global $wpdb;
+        return $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT * FROM " . self::table('prizes') . " WHERE type = %s ORDER BY created_at DESC",
+                $type
+            )
+        );
+    }
+
+    public static function save_simple_prize(int $prize_id, array $data): void
+    {
+        global $wpdb;
+        $campaign_id = Utils::get_active_campaign_id() ?: Utils::ensure_campaign();
+        $payload = [
+            'campaign_id' => $campaign_id,
+            'title' => $data['title'],
+            'type' => $data['type'],
+            'weight' => $data['weight'],
+            'stock' => $data['stock'],
+            'remaining' => $data['stock'],
+            'expiry_days' => $data['expiry_days'] ?: null,
+            'active' => 1,
+            'created_at' => Utils::now_mysql(),
+        ];
+        if ($prize_id) {
+            $wpdb->update(self::table('prizes'), $payload, ['id' => $prize_id]);
+            return;
+        }
+        $wpdb->insert(self::table('prizes'), $payload);
+    }
+
+    public static function toggle_prize(int $prize_id): void
+    {
+        global $wpdb;
+        $prize = $wpdb->get_row($wpdb->prepare("SELECT active FROM " . self::table('prizes') . " WHERE id = %d", $prize_id));
+        if (!$prize) {
+            return;
+        }
+        $wpdb->update(self::table('prizes'), ['active' => $prize->active ? 0 : 1], ['id' => $prize_id]);
+    }
+
+    public static function get_claim_by_code(string $code): ?object
+    {
+        global $wpdb;
+        return $wpdb->get_row($wpdb->prepare("SELECT * FROM " . self::table('claims') . " WHERE claim_code = %s", $code));
+    }
+
+    public static function mark_claim_used(string $code, int $user_id): void
+    {
+        global $wpdb;
+        $wpdb->update(self::table('claims'), [
+            'status' => 'used',
+            'used_at' => Utils::now_mysql(),
+            'staff_user_id' => $user_id,
+        ], ['claim_code' => $code]);
+    }
+
+    public static function get_prize_title(int $prize_id): string
+    {
+        global $wpdb;
+        $title = $wpdb->get_var($wpdb->prepare("SELECT title FROM " . self::table('prizes') . " WHERE id = %d", $prize_id));
+        return $title ?: '-';
     }
 }
