@@ -161,7 +161,7 @@ class DB
         );
     }
 
-    public static function save_simple_prize(int $prize_id, array $data): void
+    public static function save_simple_prize(int $prize_id, array $data): int
     {
         global $wpdb;
         $campaign_id = Utils::get_active_campaign_id() ?: Utils::ensure_campaign();
@@ -178,9 +178,10 @@ class DB
         ];
         if ($prize_id) {
             $wpdb->update(self::table('prizes'), $payload, ['id' => $prize_id]);
-            return;
+            return $prize_id;
         }
         $wpdb->insert(self::table('prizes'), $payload);
+        return (int) $wpdb->insert_id;
     }
 
     public static function toggle_prize(int $prize_id): void
@@ -214,5 +215,11 @@ class DB
         global $wpdb;
         $title = $wpdb->get_var($wpdb->prepare("SELECT title FROM " . self::table('prizes') . " WHERE id = %d", $prize_id));
         return $title ?: '-';
+    }
+
+    public static function get_prize_by_id(int $prize_id): ?object
+    {
+        global $wpdb;
+        return $wpdb->get_row($wpdb->prepare("SELECT * FROM " . self::table('prizes') . " WHERE id = %d", $prize_id));
     }
 }

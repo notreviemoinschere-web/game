@@ -139,7 +139,8 @@ class Utils
     public static function get_public_game_url(): string
     {
         $page_id = self::ensure_game_page();
-        return get_permalink($page_id);
+        $token = self::get_public_token();
+        return add_query_arg(['gh' => $token], get_permalink($page_id));
     }
 
     public static function get_qr_id(): string
@@ -151,6 +152,35 @@ class Utils
         $qr_id = wp_generate_uuid4();
         self::update_option('qr_id', $qr_id);
         return $qr_id;
+    }
+
+    public static function get_public_token(): string
+    {
+        $token = self::get_option('public_token', '');
+        if ($token) {
+            return $token;
+        }
+        $token = wp_generate_uuid4();
+        self::update_option('public_token', $token);
+        return $token;
+    }
+
+    public static function is_public_token_valid(string $token): bool
+    {
+        return hash_equals(self::get_public_token(), $token);
+    }
+
+    public static function get_test_signature(string $token): string
+    {
+        return hash_hmac('sha256', 'test|' . $token, self::get_hmac_secret());
+    }
+
+    public static function is_valid_test_request(string $token, string $signature): bool
+    {
+        if (!$token || !$signature) {
+            return false;
+        }
+        return hash_equals(self::get_test_signature($token), $signature);
     }
 
     public static function pick_prize(int $campaign_id, string $type): ?object

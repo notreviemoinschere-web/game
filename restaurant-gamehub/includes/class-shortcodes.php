@@ -17,7 +17,17 @@ class Shortcodes
     {
         $settings = get_option('gamehub_settings', []);
         $type = $settings['active_game'] ?? 'roulette';
-        return self::render_game(['type' => $type, 'qr_id' => Utils::get_qr_id()]);
+        $token = sanitize_text_field($_GET['gh'] ?? '');
+        if (!$token || !Utils::is_public_token_valid($token)) {
+            return '<div class="gamehub"><p>QR indisponible. Veuillez contacter le restaurant.</p></div>';
+        }
+        return self::render_game([
+            'type' => $type,
+            'qr_id' => Utils::get_qr_id(),
+            'token' => $token,
+            'test' => sanitize_text_field($_GET['test'] ?? ''),
+            'sig' => sanitize_text_field($_GET['sig'] ?? ''),
+        ]);
     }
 
     public static function render_game(array $atts = []): string
@@ -42,6 +52,9 @@ class Shortcodes
             'rest_url' => esc_url_raw(rest_url('gamehub/v1/play')),
             'lead_url' => esc_url_raw(rest_url('gamehub/v1/lead')),
             'nonce' => wp_create_nonce('wp_rest'),
+            'token' => sanitize_text_field($atts['token'] ?? ''),
+            'test' => sanitize_text_field($atts['test'] ?? ''),
+            'sig' => sanitize_text_field($atts['sig'] ?? ''),
         ];
 
         $json = wp_json_encode($data);

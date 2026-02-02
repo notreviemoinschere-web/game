@@ -56,6 +56,10 @@ class Rest
         $qr_id = sanitize_text_field($request->get_param('qr_id'));
         $user_key = sanitize_text_field($request->get_param('user_key'));
         $device_hash = sanitize_text_field($request->get_param('device_hash'));
+        $token = sanitize_text_field($request->get_param('token'));
+        if ($token && !Utils::is_public_token_valid($token)) {
+            return new WP_Error('invalid_token', 'QR expired', ['status' => 403]);
+        }
 
         if (!self::can_play($user_key, $device_hash)) {
             return new WP_Error('play_limit', 'Play limit reached', ['status' => 429]);
@@ -77,10 +81,11 @@ class Rest
             }
         }
 
-        $play_id = self::record_play($type, $campaign_id, $prize ? (int) $prize->id : null, $result, $qr_id, $user_key, $device_hash);
+        $test_mode = self::is_test_request($request);
+        $play_id = self::record_play($type, $campaign_id, $prize ? (int) $prize->id : null, $result, $qr_id, $user_key, $device_hash, $test_mode);
         $claim = null;
         if ($prize) {
-            $claim = self::create_claim($play_id, (int) $prize->id);
+            $claim = self::create_claim($play_id, (int) $prize->id, $test_mode);
         }
 
         $response = [
@@ -148,7 +153,7 @@ class Rest
         return rest_ensure_response(['status' => 'used']);
     }
 
-    private static function record_play(string $type, int $campaign_id, ?int $prize_id, string $result, string $qr_id, string $user_key, string $device_hash): int
+    private static function record_play(string $type, int $campaign_id, ?int $prize_id, string $result, string $qr_id, string $user_key, string $device_hash, bool $test_mode): int
     {
         global $wpdb;
         $wpdb->insert(DB::table('plays'), [
@@ -166,7 +171,7 @@ class Rest
             'created_at' => Utils::now_mysql(),
         ]);
 
-        if ($prize_id && !Utils::is_test_mode()) {
+        if ($prize_id && !$test_mode && !Utils::is_test_mode()) {
             $wpdb->query(
                 $wpdb->prepare(
                     "UPDATE " . DB::table('prizes') . " SET remaining = IF(remaining IS NULL, remaining, GREATEST(remaining - 1, 0)) WHERE id = %d",
@@ -178,13 +183,13 @@ class Rest
         return (int) $wpdb->insert_id;
     }
 
-    private static function create_claim(int $play_id, int $prize_id): array
+    private static function create_claim(int $play_id, int $prize_id, bool $test_mode): array
     {
         global $wpdb;
         $prize = $wpdb->get_row($wpdb->prepare("SELECT expiry_days FROM " . DB::table('prizes') . " WHERE id = %d", $prize_id));
         $hours = $prize && $prize->expiry_days ? ((int) $prize->expiry_days * 24) : Utils::get_claim_expiry_hours();
         $expires = gmdate('Y-m-d H:i:s', time() + $hours * HOUR_IN_SECONDS);
-        $code = Utils::generate_claim_code(Utils::is_test_mode());
+        $code = Utils::generate_claim_code($test_mode || Utils::is_test_mode());
         $token = Utils::sign_claim_token($code, $play_id);
 
         $wpdb->insert(DB::table('claims'), [
@@ -202,6 +207,17 @@ class Rest
             'claim_token' => $token,
             'expires_at' => $expires,
         ];
+    }
+
+    private static function is_test_request(WP_REST_Request $request): bool
+    {
+        $test = sanitize_text_field($request->get_param('test'));
+        $sig = sanitize_text_field($request->get_param('sig'));
+        $token = sanitize_text_field($request->get_param('token'));
+        if (!$test || !$sig || !$token) {
+            return false;
+        }
+        return Utils::is_valid_test_request($token, $sig);
     }
 
     private static function can_play(string $user_key, string $device_hash): bool

@@ -530,19 +530,71 @@
 
     const modal = document.getElementById('gamehub-prize-modal');
     if (modal) {
+        const openModal = (button) => {
+            modal.hidden = false;
+            modal.querySelector('input[name="prize_id"]').value = button.dataset.prizeId || '';
+            modal.querySelector('input[name="title"]').value = button.dataset.prizeTitle || '';
+            modal.querySelector('select[name="type"]').value = button.dataset.prizeType || button.dataset.type || 'win';
+            modal.querySelector('input[name="weight"]').value = button.dataset.prizeWeight || 10;
+            modal.querySelector('input[name="stock"]').value = button.dataset.prizeStock || '';
+            modal.querySelector('input[name="expiry_days"]').value = button.dataset.prizeExpiry || '';
+        };
+
         document.querySelectorAll('[data-open-prize-modal]').forEach((button) => {
-            button.addEventListener('click', () => {
-                modal.hidden = false;
-                modal.querySelector('input[name="prize_id"]').value = button.dataset.prizeId || '';
-                modal.querySelector('input[name="title"]').value = button.dataset.prizeTitle || '';
-                modal.querySelector('select[name="type"]').value = button.dataset.prizeType || button.dataset.type || 'win';
-                modal.querySelector('input[name="weight"]').value = button.dataset.prizeWeight || 10;
-                modal.querySelector('input[name="stock"]').value = button.dataset.prizeStock || '';
-                modal.querySelector('input[name="expiry_days"]').value = button.dataset.prizeExpiry || '';
-            });
+            button.addEventListener('click', () => openModal(button));
         });
         modal.querySelector('[data-close-modal]').addEventListener('click', () => {
             modal.hidden = true;
+        });
+
+        const form = modal.querySelector('form');
+        form.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const submitButton = form.querySelector('button[type="submit"]') || form.querySelector('.button-primary');
+            if (submitButton) {
+                submitButton.disabled = true;
+                submitButton.textContent = 'Enregistrement...';
+            }
+            const formData = new FormData(form);
+            const response = await fetch(form.action, {
+                method: 'POST',
+                headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                body: formData,
+            });
+            if (!response.ok) {
+                alert('Erreur lors de la création du lot.');
+                if (submitButton) {
+                    submitButton.disabled = false;
+                    submitButton.textContent = 'Enregistrer';
+                }
+                return;
+            }
+            const payload = await response.json();
+            if (!payload.success) {
+                alert(payload.data || 'Erreur');
+                if (submitButton) {
+                    submitButton.disabled = false;
+                    submitButton.textContent = 'Enregistrer';
+                }
+                return;
+            }
+            const rowHtml = payload.data.row;
+            const prizeId = payload.data.prize.id;
+            const existing = document.querySelector(`[data-prize-row=\"${prizeId}\"]`);
+            if (existing) {
+                existing.outerHTML = rowHtml;
+            } else {
+                const tbody = document.querySelector('table.widefat tbody');
+                if (tbody) {
+                    tbody.insertAdjacentHTML('afterbegin', rowHtml);
+                }
+            }
+            modal.hidden = true;
+            if (submitButton) {
+                submitButton.disabled = false;
+                submitButton.textContent = 'Enregistrer';
+            }
+            alert('Lot créé');
         });
     }
 })();

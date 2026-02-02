@@ -54,9 +54,19 @@
                     qr_id: data.qr_id,
                     user_key: localStorage.getItem('gamehub_user_key') || '',
                     device_hash: deviceHash,
+                    token: data.token || '',
+                    test: data.test || '',
+                    sig: data.sig || '',
                 }),
             })
-                .then((response) => response.json())
+                .then((response) => {
+                    if (!response.ok) {
+                        return response.json().then((payload) => {
+                            throw new Error(payload.message || 'Erreur');
+                        });
+                    }
+                    return response.json();
+                })
                 .then((payload) => {
                     resultBox.hidden = false;
                     resultLabel.textContent = payload.label || 'Merci !';
@@ -88,7 +98,7 @@
                     last_name: 'GameHub',
                     email: email,
                     phone: '',
-                    game: data.type,
+                    game: currentGame,
                 }),
             }).then(() => {
                 alert('Merci !');

@@ -75,6 +75,7 @@ class Admin
                 </form>
                 <div class="gamehub-links">
                     <a class="button" href="<?php echo esc_url($public_url); ?>" target="_blank">Ouvrir la page du jeu</a>
+                    <a class="button" href="<?php echo esc_url(add_query_arg(['test' => 1, 'sig' => Utils::get_test_signature(Utils::get_public_token())], $public_url)); ?>" target="_blank">Tester le jeu</a>
                     <button class="button" type="button" data-download-qr>Tout télécharger (QR)</button>
                 </div>
             </section>
@@ -260,7 +261,14 @@ class Admin
             'stock' => $type === 'win' ? (int) ($_POST['stock'] ?? 0) : null,
             'expiry_days' => (int) ($_POST['expiry_days'] ?? 0),
         ];
-        DB::save_simple_prize($prize_id, $data);
+        $saved_id = DB::save_simple_prize($prize_id, $data);
+        if (!empty($_SERVER['HTTP_X_REQUESTED_WITH'])) {
+            $prize = DB::get_prize_by_id($saved_id);
+            wp_send_json_success([
+                'prize' => $prize,
+                'row' => self::render_prize_row($prize),
+            ]);
+        }
         wp_safe_redirect(admin_url('admin.php?page=gamehub-dashboard'));
         exit;
     }
@@ -329,22 +337,31 @@ class Admin
         }
         echo '<table class="widefat striped"><thead><tr><th>Titre</th><th>Poids</th><th>Stock</th><th>Expiration</th><th></th></tr></thead><tbody>';
         foreach ($prizes as $prize) {
-            echo '<tr>';
-            echo '<td>' . esc_html($prize->title) . '</td>';
-            echo '<td>' . esc_html($prize->weight) . '</td>';
-            echo '<td>' . esc_html($prize->stock ?? '-') . '</td>';
-            echo '<td>' . esc_html($prize->expiry_days ? $prize->expiry_days . ' j' : '-') . '</td>';
-            echo '<td>';
-            echo '<button class="button" data-open-prize-modal data-prize-id="' . esc_attr($prize->id) . '" data-prize-title="' . esc_attr($prize->title) . '" data-prize-type="' . esc_attr($prize->type) . '" data-prize-weight="' . esc_attr($prize->weight) . '" data-prize-stock="' . esc_attr($prize->stock) . '" data-prize-expiry="' . esc_attr($prize->expiry_days) . '">Modifier</button> ';
-            echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
-            wp_nonce_field('gamehub_prize_toggle');
-            echo '<input type="hidden" name="action" value="gamehub_prize_toggle">';
-            echo '<input type="hidden" name="prize_id" value="' . esc_attr($prize->id) . '">';
-            echo '<button class="button">' . ($prize->active ? 'Désactiver' : 'Activer') . '</button>';
-            echo '</form>';
-            echo '</td>';
-            echo '</tr>';
+            echo self::render_prize_row($prize);
         }
         echo '</tbody></table>';
+    }
+
+    private static function render_prize_row(object $prize): string
+    {
+        ob_start();
+        ?>
+        <tr data-prize-row="<?php echo esc_attr($prize->id); ?>">
+            <td><?php echo esc_html($prize->title); ?></td>
+            <td><?php echo esc_html($prize->weight); ?></td>
+            <td><?php echo esc_html($prize->stock ?? '-'); ?></td>
+            <td><?php echo esc_html($prize->expiry_days ? $prize->expiry_days . ' j' : '-'); ?></td>
+            <td>
+                <button class="button" data-open-prize-modal data-prize-id="<?php echo esc_attr($prize->id); ?>" data-prize-title="<?php echo esc_attr($prize->title); ?>" data-prize-type="<?php echo esc_attr($prize->type); ?>" data-prize-weight="<?php echo esc_attr($prize->weight); ?>" data-prize-stock="<?php echo esc_attr($prize->stock); ?>" data-prize-expiry="<?php echo esc_attr($prize->expiry_days); ?>">Modifier</button>
+                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                    <?php wp_nonce_field('gamehub_prize_toggle'); ?>
+                    <input type="hidden" name="action" value="gamehub_prize_toggle">
+                    <input type="hidden" name="prize_id" value="<?php echo esc_attr($prize->id); ?>">
+                    <button class="button"><?php echo esc_html($prize->active ? 'Désactiver' : 'Activer'); ?></button>
+                </form>
+            </td>
+        </tr>
+        <?php
+        return ob_get_clean();
     }
 }
