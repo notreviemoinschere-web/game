@@ -181,7 +181,7 @@ class Rest
     private static function create_claim(int $play_id, int $prize_id): array
     {
         global $wpdb;
-        $prize = $wpdb->get_row($wpdb->prepare(\"SELECT expiry_days FROM \" . DB::table('prizes') . \" WHERE id = %d\", $prize_id));
+        $prize = $wpdb->get_row($wpdb->prepare("SELECT expiry_days FROM " . DB::table('prizes') . " WHERE id = %d", $prize_id));
         $hours = $prize && $prize->expiry_days ? ((int) $prize->expiry_days * 24) : Utils::get_claim_expiry_hours();
         $expires = gmdate('Y-m-d H:i:s', time() + $hours * HOUR_IN_SECONDS);
         $code = Utils::generate_claim_code(Utils::is_test_mode());
