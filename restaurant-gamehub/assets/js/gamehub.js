@@ -381,7 +381,14 @@
                     device_hash: deviceHash,
                 }),
             })
-                .then((response) => response.json())
+                .then((response) => {
+                    if (!response.ok) {
+                        return response.json().then((payload) => {
+                            throw new Error(payload.message || 'error');
+                        });
+                    }
+                    return response.json();
+                })
                 .then((payload) => {
                     pendingResult = getGameResult(data, payload);
                     return pendingResult;

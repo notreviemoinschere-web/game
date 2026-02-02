@@ -21,6 +21,7 @@ class Plugin
     {
         register_activation_hook(dirname(__DIR__) . '/restaurant-gamehub.php', [Activator::class, 'activate']);
         add_action('init', [$this, 'register_assets']);
+        add_action('init', [Activator::class, 'add_roles']);
         add_action('init', [Shortcodes::class, 'register']);
         add_action('rest_api_init', [Rest::class, 'register_routes']);
         add_action('admin_menu', [Admin::class, 'register_menu']);

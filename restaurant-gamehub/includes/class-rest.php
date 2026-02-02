@@ -49,6 +49,10 @@ class Rest
     public static function handle_play(WP_REST_Request $request)
     {
         $type = sanitize_text_field($request->get_param('type'));
+        $allowed = ['roulette', 'scratch', 'quiz', 'pickbox', 'memory', 'stoptimer'];
+        if (!in_array($type, $allowed, true)) {
+            return new WP_Error('invalid_type', 'Invalid game type', ['status' => 400]);
+        }
         $qr_id = sanitize_text_field($request->get_param('qr_id'));
         $user_key = sanitize_text_field($request->get_param('user_key'));
         $device_hash = sanitize_text_field($request->get_param('device_hash'));

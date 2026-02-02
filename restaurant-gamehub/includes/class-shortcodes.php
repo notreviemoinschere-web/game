@@ -23,6 +23,12 @@ class Shortcodes
         wp_enqueue_style('gamehub-frontend');
         wp_enqueue_script('gamehub-frontend');
 
+        $allowed = ['hub', 'roulette', 'scratch', 'quiz', 'pickbox', 'memory', 'stoptimer'];
+        $type = sanitize_text_field($atts['type']);
+        if (!in_array($type, $allowed, true)) {
+            $type = 'roulette';
+        }
+
         $settings = get_option('gamehub_settings', []);
         $theme = [
             'primary' => $settings['primary_color'] ?? '#ff6a3d',
@@ -38,7 +44,7 @@ class Shortcodes
         $i18n = self::get_strings($language);
 
         $data = [
-            'type' => sanitize_text_field($atts['type']),
+            'type' => $type,
             'qr_id' => sanitize_text_field($atts['qr_id']),
             'rest_url' => esc_url_raw(rest_url('gamehub/v1/play')),
             'lead_url' => esc_url_raw(rest_url('gamehub/v1/lead')),
