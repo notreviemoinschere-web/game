@@ -1,0 +1,115 @@
+:root {
+    --gh-bg: #0b0f14;
+    --gh-surface: #111827;
+    --gh-card: #0f172a;
+    --gh-accent: #8b5cf6;
+    --gh-accent-2: #22d3ee;
+    --gh-text: #f8fafc;
+    --gh-muted: #94a3b8;
+    --gh-border: rgba(148, 163, 184, 0.2);
+    --gh-shadow: 0 24px 60px rgba(15, 23, 42, 0.35);
+}
+
+.gamehub {
+    max-width: 640px;
+    margin: 24px auto;
+    padding: 24px;
+    border-radius: 20px;
+    background: radial-gradient(circle at top, rgba(139, 92, 246, 0.12), transparent 40%), var(--gh-bg);
+    color: var(--gh-text);
+    font-family: "Inter", system-ui, sans-serif;
+    box-shadow: var(--gh-shadow);
+    border: 1px solid var(--gh-border);
+}
+
+.gamehub__screen {
+    display: grid;
+    gap: 16px;
+}
+
+.gamehub__title {
+    font-size: 20px;
+    font-weight: 700;
+    margin: 0;
+}
+
+.gamehub__grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
+}
+
+.gamehub__card {
+    padding: 14px 16px;
+    border-radius: 14px;
+    background: linear-gradient(145deg, rgba(139, 92, 246, 0.12), rgba(34, 211, 238, 0.08));
+    border: 1px solid rgba(139, 92, 246, 0.25);
+    color: var(--gh-text);
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.gamehub__card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 24px rgba(139, 92, 246, 0.25);
+}
+
+.gamehub__card:active {
+    transform: translateY(0);
+}
+
+.gamehub__stage {
+    padding: 16px;
+    border-radius: 16px;
+    background: var(--gh-card);
+    border: 1px solid var(--gh-border);
+}
+
+.gamehub__play,
+.gamehub__lead {
+    background: linear-gradient(135deg, var(--gh-accent), var(--gh-accent-2));
+    border: none;
+    color: #0b0f14;
+    font-weight: 700;
+    padding: 12px 20px;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.gamehub__play:hover,
+.gamehub__lead:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 10px 24px rgba(139, 92, 246, 0.35);
+}
+
+.gamehub__play:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    box-shadow: none;
+}
+
+.gamehub__result {
+    background: rgba(15, 23, 42, 0.8);
+    border: 1px solid var(--gh-border);
+    padding: 14px;
+    border-radius: 14px;
+}
+
+.gamehub__result-label {
+    font-weight: 600;
+    margin: 0 0 6px;
+}
+
+.gamehub__claim {
+    color: var(--gh-muted);
+    margin: 0 0 12px;
+}
+
+@media (max-width: 600px) {
+    .gamehub {
+        padding: 16px;
+        margin: 16px;
+    }
+}
