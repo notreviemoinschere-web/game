@@ -243,6 +243,47 @@ class Utils
         return (bool) self::get_option('test_mode', false);
     }
 
+
+    public static function get_portal_url(): string
+    {
+        $page = get_page_by_path('loyaltyplay-portal');
+        if (!$page) {
+            Activator::ensure_front_pages();
+            $page = get_page_by_path('loyaltyplay-portal');
+        }
+        return $page ? get_permalink($page->ID) : home_url('/');
+    }
+
+    public static function get_login_url(): string
+    {
+        $page = get_page_by_path('loyaltyplay-login');
+        return $page ? get_permalink($page->ID) : wp_login_url(self::get_portal_url());
+    }
+
+    public static function maybe_block_admin_access(): void
+    {
+        if (!is_admin() || wp_doing_ajax() || (defined('REST_REQUEST') && REST_REQUEST)) {
+            return;
+        }
+        if (is_network_admin()) {
+            return;
+        }
+        $user = wp_get_current_user();
+        if (!$user || empty($user->roles)) {
+            return;
+        }
+        $is_business = in_array('loyaltyplay_business', $user->roles, true);
+        $is_staff = in_array('loyaltyplay_staff', $user->roles, true);
+        if (!$is_business && !$is_staff) {
+            return;
+        }
+        if (current_user_can('manage_options')) {
+            return;
+        }
+        wp_safe_redirect(self::get_portal_url());
+        exit;
+    }
+
     public static function expire_claims(): void
     {
         global $wpdb;

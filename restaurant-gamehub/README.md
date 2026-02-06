@@ -33,3 +33,8 @@ restaurant-gamehub/
 - Endpoints REST pour play, leads, validation.
 
 Consultez `docs/INSTALLATION.md` pour l'installation complète.
+
+## Portail Front-only v4
+- Pages front auto: `/loyaltyplay-signup/`, `/loyaltyplay-login/`, `/loyaltyplay-portal/`.
+- Entreprises/staff redirigés hors wp-admin vers le portail front.
+- Support des types de jeu: roulette, scratch, quiz, pick-a-box, memory, stop-timer.

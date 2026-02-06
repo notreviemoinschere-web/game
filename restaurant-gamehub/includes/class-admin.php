@@ -144,6 +144,18 @@ class Admin
                                     </select>
                                     <button class="button">Changer</button>
                                 </form>
+                                <form method="post" action="<?php echo esc_url(network_admin_url('admin-post.php')); ?>" style="display:inline-block; margin-right:6px;">
+                                    <?php wp_nonce_field('gamehub_company_status'); ?>
+                                    <input type="hidden" name="action" value="gamehub_company_status">
+                                    <input type="hidden" name="company_id" value="<?php echo esc_attr($company->id); ?>">
+                                    <select name="status">
+                                        <option value="active" <?php selected($company->status, 'active'); ?>>Actif</option>
+                                        <option value="trial" <?php selected($company->status, 'trial'); ?>>Trial</option>
+                                        <option value="unpaid" <?php selected($company->status, 'unpaid'); ?>>Impayé</option>
+                                        <option value="suspended" <?php selected($company->status, 'suspended'); ?>>Suspendu</option>
+                                    </select>
+                                    <button class="button">Statut</button>
+                                </form>
                                 <form method="post" action="<?php echo esc_url(network_admin_url('admin-post.php')); ?>" style="display:inline-block;">
                                     <?php wp_nonce_field('gamehub_delete_company'); ?>
                                     <input type="hidden" name="action" value="gamehub_delete_company">
@@ -410,6 +422,21 @@ class Admin
         exit;
     }
 
+    public static function handle_company_status(): void
+    {
+        check_admin_referer('gamehub_company_status');
+        if (!current_user_can('manage_network_options')) {
+            wp_die('Unauthorized');
+        }
+        $company_id = (int) ($_POST['company_id'] ?? 0);
+        $status = sanitize_key($_POST['status'] ?? 'active');
+        if ($company_id) {
+            DB::update_company_status($company_id, $status);
+        }
+        wp_safe_redirect(network_admin_url('admin.php?page=gamehub-saas&status=1'));
+        exit;
+    }
+
     public static function handle_save_plan(): void
     {
         check_admin_referer('gamehub_save_plan');
@@ -527,7 +554,7 @@ class Admin
     public static function handle_validate_check(): void
     {
         check_admin_referer('gamehub_validate_check');
-        if (!current_user_can('gamehub_validate') && !current_user_can('gamehub_manage')) {
+        if (!current_user_can('gamehub_validate') && !current_user_can('gamehub_manage') && !current_user_can('lp_validate_claim')) {
             wp_die('Unauthorized');
         }
         $code = sanitize_text_field($_POST['claim_code'] ?? '');
@@ -555,7 +582,7 @@ class Admin
     public static function handle_validate_use(): void
     {
         check_admin_referer('gamehub_validate_use');
-        if (!current_user_can('gamehub_validate') && !current_user_can('gamehub_manage')) {
+        if (!current_user_can('gamehub_validate') && !current_user_can('gamehub_manage') && !current_user_can('lp_validate_claim')) {
             wp_die('Unauthorized');
         }
         $code = sanitize_text_field($_POST['claim_code'] ?? '');

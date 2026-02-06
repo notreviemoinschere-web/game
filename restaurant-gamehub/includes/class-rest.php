@@ -48,8 +48,12 @@ class Rest
 
     public static function handle_play(WP_REST_Request $request)
     {
+        if (DB::is_site_suspended(get_current_blog_id())) {
+            return new WP_Error('portal_blocked', 'Account suspended', ['status' => 403]);
+        }
+
         $type = sanitize_text_field($request->get_param('type'));
-        $allowed = ['roulette', 'scratch', 'quiz'];
+        $allowed = ['roulette', 'scratch', 'quiz', 'pick-a-box', 'memory', 'stop-timer'];
         if (!in_array($type, $allowed, true)) {
             return new WP_Error('invalid_type', 'Invalid game type', ['status' => 400]);
         }
@@ -112,10 +116,15 @@ class Rest
         $phone = sanitize_text_field($request->get_param('phone'));
         $campaign_id = (int) $request->get_param('campaign_id');
         $game = sanitize_text_field($request->get_param('game'));
+        $consent_necessary = (int) $request->get_param('consent_necessary');
+        $consent_email = (int) $request->get_param('consent_email');
+        $consent_whatsapp = (int) $request->get_param('consent_whatsapp');
 
         if (!$first || !$last || (!$email && !$phone)) {
             return new WP_Error('missing_fields', 'Required fields missing', ['status' => 400]);
         }
+
+        $consent_version = sanitize_text_field($request->get_param('consent_version') ?: 'v1');
 
         $wpdb->insert(DB::table('leads'), [
             'first_name' => $first,
@@ -129,7 +138,24 @@ class Rest
             'created_at' => Utils::now_mysql(),
         ]);
 
-        return rest_ensure_response(['lead_id' => (int) $wpdb->insert_id]);
+        $lead_id = (int) $wpdb->insert_id;
+        $consents = [
+            'necessary' => $consent_necessary ?: 1,
+            'email_marketing' => $consent_email,
+            'whatsapp_marketing' => $consent_whatsapp,
+        ];
+        foreach ($consents as $type => $granted) {
+            $wpdb->insert(DB::table('lp_consent_log'), [
+                'lead_id' => $lead_id,
+                'consent_type' => $type,
+                'consent_text_version' => $consent_version,
+                'ip' => Utils::get_ip_address(),
+                'ua' => Utils::get_user_agent(),
+                'created_at' => Utils::now_mysql(),
+            ]);
+        }
+
+        return rest_ensure_response(['lead_id' => $lead_id]);
     }
 
     public static function handle_validate(WP_REST_Request $request)

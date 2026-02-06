@@ -19,6 +19,11 @@ class DB
             'leads' => $prefix . 'leads',
             'consents' => $prefix . 'consents',
             'qr_codes' => $prefix . 'qr_codes',
+            'lp_campaigns' => $prefix . 'lp_campaigns',
+            'lp_prizes' => $prefix . 'lp_prizes',
+            'lp_claims' => $prefix . 'lp_claims',
+            'lp_qr_codes' => $prefix . 'lp_qr_codes',
+            'lp_consent_log' => $prefix . 'lp_consent_log',
         ];
         return $tables[$key] ?? '';
     }
@@ -142,6 +147,73 @@ class DB
                 PRIMARY KEY (id),
                 UNIQUE KEY qr_id (qr_id)
             ) {$charset};",
+
+            "CREATE TABLE " . self::table('lp_campaigns') . " (
+                id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+                business_id BIGINT UNSIGNED NOT NULL,
+                name VARCHAR(190) NOT NULL,
+                starts_at DATETIME NULL,
+                ends_at DATETIME NULL,
+                status VARCHAR(20) NOT NULL DEFAULT 'active',
+                created_at DATETIME NOT NULL,
+                PRIMARY KEY (id),
+                KEY business_id (business_id),
+                KEY status (status)
+            ) {$charset};",
+            "CREATE TABLE " . self::table('lp_prizes') . " (
+                id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+                campaign_id BIGINT UNSIGNED NOT NULL,
+                type VARCHAR(20) NOT NULL,
+                title VARCHAR(190) NOT NULL,
+                description TEXT NULL,
+                image_url TEXT NULL,
+                weight DECIMAL(10,4) NOT NULL DEFAULT 1,
+                stock_total BIGINT UNSIGNED NULL,
+                stock_used BIGINT UNSIGNED NOT NULL DEFAULT 0,
+                claim_expiry_hours INT NOT NULL DEFAULT 48,
+                active TINYINT(1) NOT NULL DEFAULT 1,
+                created_at DATETIME NOT NULL,
+                PRIMARY KEY (id),
+                KEY campaign_id (campaign_id),
+                KEY type (type)
+            ) {$charset};",
+            "CREATE TABLE " . self::table('lp_claims') . " (
+                id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+                play_id BIGINT UNSIGNED NOT NULL,
+                prize_id BIGINT UNSIGNED NOT NULL,
+                claim_code VARCHAR(64) NOT NULL,
+                expires_at DATETIME NOT NULL,
+                status VARCHAR(20) NOT NULL DEFAULT 'issued',
+                validated_by BIGINT UNSIGNED NULL,
+                validated_at DATETIME NULL,
+                created_at DATETIME NOT NULL,
+                PRIMARY KEY (id),
+                UNIQUE KEY claim_code (claim_code),
+                KEY status (status)
+            ) {$charset};",
+            "CREATE TABLE " . self::table('lp_qr_codes') . " (
+                id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+                business_id BIGINT UNSIGNED NOT NULL,
+                game_id BIGINT UNSIGNED NOT NULL,
+                label VARCHAR(190) NOT NULL,
+                qr_token VARCHAR(128) NOT NULL,
+                target_url TEXT NOT NULL,
+                created_at DATETIME NOT NULL,
+                PRIMARY KEY (id),
+                UNIQUE KEY qr_token (qr_token)
+            ) {$charset};",
+            "CREATE TABLE " . self::table('lp_consent_log') . " (
+                id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+                lead_id BIGINT UNSIGNED NOT NULL,
+                consent_type VARCHAR(50) NOT NULL,
+                consent_text_version TEXT NULL,
+                ip VARCHAR(64) NULL,
+                ua VARCHAR(255) NULL,
+                created_at DATETIME NOT NULL,
+                PRIMARY KEY (id),
+                KEY lead_id (lead_id),
+                KEY consent_type (consent_type)
+            ) {$charset};",
         ];
     }
 
@@ -252,13 +324,19 @@ class DB
 
         if ($company_id > 0) {
             if (is_multisite() && $site_id) {
+                add_user_to_blog($site_id, (int) $user_id, 'loyaltyplay_business');
                 switch_to_blog($site_id);
                 Activator::create_tables();
+                Activator::ensure_front_pages();
                 Utils::ensure_game_page();
                 Utils::ensure_campaign();
                 Utils::ensure_default_prizes();
                 restore_current_blog();
             } else {
+                $user = get_user_by('id', (int) $user_id);
+                if ($user) {
+                    $user->set_role('loyaltyplay_business');
+                }
                 Utils::ensure_game_page();
                 Utils::ensure_campaign();
                 Utils::ensure_default_prizes();
@@ -348,6 +426,31 @@ class DB
     {
         global $wpdb;
         return $wpdb->get_results("SELECT * FROM " . self::saas_table('plans') . " WHERE active = 1 ORDER BY price_monthly ASC");
+    }
+
+
+
+    public static function get_company_by_user(int $user_id): ?object
+    {
+        global $wpdb;
+        return $wpdb->get_row($wpdb->prepare("SELECT * FROM " . self::saas_table('companies') . " WHERE owner_user_id = %d ORDER BY id DESC LIMIT 1", $user_id));
+    }
+
+    public static function is_site_suspended(int $site_id): bool
+    {
+        global $wpdb;
+        $status = $wpdb->get_var($wpdb->prepare("SELECT status FROM " . self::saas_table('companies') . " WHERE site_id = %d LIMIT 1", $site_id));
+        return $status === 'suspended' || $status === 'unpaid';
+    }
+
+    public static function update_company_status(int $company_id, string $status): void
+    {
+        global $wpdb;
+        $allowed = ['active', 'suspended', 'unpaid', 'trial'];
+        if (!in_array($status, $allowed, true)) {
+            return;
+        }
+        $wpdb->update(self::saas_table('companies'), ['status' => $status], ['id' => $company_id]);
     }
 
     public static function get_stats(): array

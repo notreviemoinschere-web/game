@@ -18,6 +18,7 @@ class Activator
                 self::create_tables();
                 self::schedule_cron();
                 self::add_roles();
+                self::ensure_front_pages();
                 restore_current_blog();
             }
             return;
@@ -25,6 +26,7 @@ class Activator
         self::create_tables();
         self::schedule_cron();
         self::add_roles();
+        self::ensure_front_pages();
     }
 
     public static function create_saas_tables(): void
@@ -54,6 +56,30 @@ class Activator
         }
     }
 
+
+    public static function ensure_front_pages(): void
+    {
+        $pages = [
+            'loyaltyplay-signup' => ['title' => 'LoyaltyPlay Signup', 'content' => '[loyaltyplay_register]'],
+            'loyaltyplay-login' => ['title' => 'LoyaltyPlay Login', 'content' => '[loyaltyplay_login]'],
+            'loyaltyplay-portal' => ['title' => 'LoyaltyPlay Portal', 'content' => '[loyaltyplay_portal]'],
+        ];
+
+        foreach ($pages as $slug => $page) {
+            $existing = get_page_by_path($slug);
+            if ($existing) {
+                continue;
+            }
+            wp_insert_post([
+                'post_type' => 'page',
+                'post_status' => 'publish',
+                'post_title' => $page['title'],
+                'post_name' => $slug,
+                'post_content' => $page['content'],
+            ]);
+        }
+    }
+
     public static function schedule_cron(): void
     {
         if (!wp_next_scheduled('gamehub_expire_claims')) {
@@ -67,10 +93,25 @@ class Activator
         if ($admin) {
             $admin->add_cap('gamehub_manage');
             $admin->add_cap('gamehub_validate');
+            $admin->add_cap('lp_manage_business');
+            $admin->add_cap('lp_validate_claim');
         }
+
         $manager = get_role('shop_manager');
         if ($manager) {
             $manager->add_cap('gamehub_validate');
+            $manager->add_cap('lp_validate_claim');
         }
+
+        add_role('loyaltyplay_business', 'LoyaltyPlay Business', [
+            'read' => true,
+            'lp_manage_business' => true,
+        ]);
+
+        add_role('loyaltyplay_staff', 'LoyaltyPlay Staff', [
+            'read' => true,
+            'lp_validate_claim' => true,
+            'gamehub_validate' => true,
+        ]);
     }
 }

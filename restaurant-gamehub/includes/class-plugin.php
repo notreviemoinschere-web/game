@@ -23,6 +23,7 @@ class Plugin
         add_action('init', [$this, 'register_assets']);
         add_action('init', [Activator::class, 'add_roles']);
         add_action('init', [Shortcodes::class, 'register']);
+        add_action('admin_init', [Utils::class, 'maybe_block_admin_access']);
         add_action('rest_api_init', [Rest::class, 'register_routes']);
         add_action('admin_menu', [Admin::class, 'register_menu']);
         add_action('admin_enqueue_scripts', [Admin::class, 'enqueue_assets']);
@@ -37,6 +38,7 @@ class Plugin
         add_action('admin_post_gamehub_create_company', [Admin::class, 'handle_create_company']);
         add_action('admin_post_gamehub_delete_company', [Admin::class, 'handle_delete_company']);
         add_action('admin_post_gamehub_assign_plan', [Admin::class, 'handle_assign_plan']);
+        add_action('admin_post_gamehub_company_status', [Admin::class, 'handle_company_status']);
         add_action('admin_post_gamehub_save_plan', [Admin::class, 'handle_save_plan']);
         add_action('admin_post_gamehub_upgrade_plan', [Admin::class, 'handle_upgrade_plan']);
 
