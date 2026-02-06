@@ -34,6 +34,12 @@ class Plugin
         add_action('admin_post_gamehub_validate_check', [Admin::class, 'handle_validate_check']);
         add_action('admin_post_gamehub_validate_use', [Admin::class, 'handle_validate_use']);
 
+        add_action('admin_post_gamehub_create_company', [Admin::class, 'handle_create_company']);
+        add_action('admin_post_gamehub_delete_company', [Admin::class, 'handle_delete_company']);
+        add_action('admin_post_gamehub_assign_plan', [Admin::class, 'handle_assign_plan']);
+        add_action('admin_post_gamehub_save_plan', [Admin::class, 'handle_save_plan']);
+        add_action('admin_post_gamehub_upgrade_plan', [Admin::class, 'handle_upgrade_plan']);
+
         add_action('gamehub_expire_claims', [Utils::class, 'expire_claims']);
         add_filter('rest_post_dispatch', [Rest::class, 'add_no_cache_headers'], 10, 3);
     }

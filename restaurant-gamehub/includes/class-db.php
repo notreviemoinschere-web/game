@@ -23,6 +23,18 @@ class DB
         return $tables[$key] ?? '';
     }
 
+    public static function saas_table(string $key): string
+    {
+        global $wpdb;
+        $prefix = $wpdb->base_prefix . 'gamehub_saas_';
+        $tables = [
+            'companies' => $prefix . 'companies',
+            'plans' => $prefix . 'plans',
+            'subscriptions' => $prefix . 'subscriptions',
+        ];
+        return $tables[$key] ?? '';
+    }
+
     public static function schema(): array
     {
         global $wpdb;
@@ -133,6 +145,211 @@ class DB
         ];
     }
 
+    public static function saas_schema(): array
+    {
+        global $wpdb;
+        $charset = $wpdb->get_charset_collate();
+        return [
+            "CREATE TABLE " . self::saas_table('companies') . " (
+                id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+                site_id BIGINT UNSIGNED NOT NULL,
+                owner_user_id BIGINT UNSIGNED NOT NULL,
+                name VARCHAR(190) NOT NULL,
+                slug VARCHAR(190) NOT NULL,
+                status VARCHAR(20) NOT NULL DEFAULT 'active',
+                created_at DATETIME NOT NULL,
+                PRIMARY KEY (id),
+                UNIQUE KEY site_id (site_id),
+                KEY owner_user_id (owner_user_id),
+                KEY status (status)
+            ) {$charset};",
+            "CREATE TABLE " . self::saas_table('plans') . " (
+                id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+                code VARCHAR(32) NOT NULL,
+                name VARCHAR(190) NOT NULL,
+                price_monthly DECIMAL(10,2) NOT NULL DEFAULT 0,
+                limits_json LONGTEXT NULL,
+                active TINYINT(1) NOT NULL DEFAULT 1,
+                created_at DATETIME NOT NULL,
+                PRIMARY KEY (id),
+                UNIQUE KEY code (code),
+                KEY active (active)
+            ) {$charset};",
+            "CREATE TABLE " . self::saas_table('subscriptions') . " (
+                id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+                company_id BIGINT UNSIGNED NOT NULL,
+                plan_id BIGINT UNSIGNED NOT NULL,
+                status VARCHAR(20) NOT NULL DEFAULT 'active',
+                started_at DATETIME NOT NULL,
+                ended_at DATETIME NULL,
+                created_at DATETIME NOT NULL,
+                PRIMARY KEY (id),
+                KEY company_id (company_id),
+                KEY plan_id (plan_id),
+                KEY status (status)
+            ) {$charset};",
+        ];
+    }
+
+    public static function ensure_default_plans(): void
+    {
+        global $wpdb;
+        $table = self::saas_table('plans');
+        $count = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$table}");
+        if ($count > 0) {
+            return;
+        }
+        $plans = [
+            ['code' => 'free', 'name' => 'Gratuit', 'price' => 0, 'limits' => ['plays_per_month' => 300, 'games' => 1]],
+            ['code' => 'pro', 'name' => 'Pro', 'price' => 49, 'limits' => ['plays_per_month' => 5000, 'games' => 3]],
+            ['code' => 'elite', 'name' => 'Elite', 'price' => 149, 'limits' => ['plays_per_month' => -1, 'games' => -1]],
+        ];
+        foreach ($plans as $plan) {
+            $wpdb->insert($table, [
+                'code' => $plan['code'],
+                'name' => $plan['name'],
+                'price_monthly' => $plan['price'],
+                'limits_json' => wp_json_encode($plan['limits']),
+                'active' => 1,
+                'created_at' => Utils::now_mysql(),
+            ]);
+        }
+    }
+
+    public static function create_company(string $name, string $email, int $plan_id = 0): int
+    {
+        global $wpdb;
+        $slug = sanitize_title($name ?: 'entreprise-' . wp_generate_password(6, false, false));
+        $password = wp_generate_password(18, true, true);
+        $user_id = email_exists($email);
+        if (!$user_id) {
+            $user_id = wp_create_user($email, $password, $email);
+            if (is_wp_error($user_id)) {
+                return 0;
+            }
+        }
+
+        $site_id = get_current_blog_id();
+        if (is_multisite()) {
+            $domain = parse_url(network_site_url(), PHP_URL_HOST) ?: parse_url(home_url(), PHP_URL_HOST);
+            $path = '/' . trim($slug, '/') . '/';
+            $new_site_id = wpmu_create_blog($domain, $path, $name, $user_id, [], get_current_network_id());
+            if (!is_wp_error($new_site_id)) {
+                $site_id = (int) $new_site_id;
+            }
+        }
+
+        $companies_table = self::saas_table('companies');
+        $wpdb->insert($companies_table, [
+            'site_id' => $site_id,
+            'owner_user_id' => (int) $user_id,
+            'name' => sanitize_text_field($name),
+            'slug' => $slug,
+            'status' => 'active',
+            'created_at' => Utils::now_mysql(),
+        ]);
+        $company_id = (int) $wpdb->insert_id;
+
+        if ($company_id > 0) {
+            if (is_multisite() && $site_id) {
+                switch_to_blog($site_id);
+                Activator::create_tables();
+                Utils::ensure_game_page();
+                Utils::ensure_campaign();
+                Utils::ensure_default_prizes();
+                restore_current_blog();
+            } else {
+                Utils::ensure_game_page();
+                Utils::ensure_campaign();
+                Utils::ensure_default_prizes();
+            }
+
+            if (!$plan_id) {
+                $plan_id = (int) $wpdb->get_var($wpdb->prepare("SELECT id FROM " . self::saas_table('plans') . " WHERE code = %s LIMIT 1", 'free'));
+            }
+            if ($plan_id) {
+                self::assign_plan($company_id, $plan_id);
+            }
+        }
+
+        return $company_id;
+    }
+
+    public static function assign_plan(int $company_id, int $plan_id): void
+    {
+        global $wpdb;
+        $subscriptions_table = self::saas_table('subscriptions');
+        $wpdb->query($wpdb->prepare("UPDATE {$subscriptions_table} SET status = %s, ended_at = %s WHERE company_id = %d AND status = %s", 'cancelled', Utils::now_mysql(), $company_id, 'active'));
+        $wpdb->insert($subscriptions_table, [
+            'company_id' => $company_id,
+            'plan_id' => $plan_id,
+            'status' => 'active',
+            'started_at' => Utils::now_mysql(),
+            'ended_at' => null,
+            'created_at' => Utils::now_mysql(),
+        ]);
+    }
+
+    public static function delete_company(int $company_id): void
+    {
+        global $wpdb;
+        $company = self::get_company($company_id);
+        if (!$company) {
+            return;
+        }
+        if (is_multisite() && !empty($company->site_id)) {
+            wpmu_delete_blog((int) $company->site_id, true);
+        }
+        $wpdb->delete(self::saas_table('subscriptions'), ['company_id' => $company_id]);
+        $wpdb->delete(self::saas_table('companies'), ['id' => $company_id]);
+    }
+
+    public static function get_company(int $company_id): ?object
+    {
+        global $wpdb;
+        return $wpdb->get_row($wpdb->prepare("SELECT * FROM " . self::saas_table('companies') . " WHERE id = %d", $company_id));
+    }
+
+    public static function get_company_by_site(int $site_id): ?object
+    {
+        global $wpdb;
+        return $wpdb->get_row($wpdb->prepare("SELECT * FROM " . self::saas_table('companies') . " WHERE site_id = %d", $site_id));
+    }
+
+    public static function get_company_subscription(int $company_id): ?object
+    {
+        global $wpdb;
+        return $wpdb->get_row(
+            $wpdb->prepare(
+                "SELECT s.*, p.name AS plan_name, p.code AS plan_code, p.price_monthly, p.limits_json
+                 FROM " . self::saas_table('subscriptions') . " s
+                 INNER JOIN " . self::saas_table('plans') . " p ON p.id = s.plan_id
+                 WHERE s.company_id = %d AND s.status = %s
+                 ORDER BY s.id DESC LIMIT 1",
+                $company_id,
+                'active'
+            )
+        );
+    }
+
+    public static function get_all_companies(): array
+    {
+        global $wpdb;
+        return $wpdb->get_results(
+            "SELECT c.*, p.name AS plan_name, p.code AS plan_code
+             FROM " . self::saas_table('companies') . " c
+             LEFT JOIN " . self::saas_table('subscriptions') . " s ON s.company_id = c.id AND s.status = 'active'
+             LEFT JOIN " . self::saas_table('plans') . " p ON p.id = s.plan_id
+             ORDER BY c.id DESC"
+        );
+    }
+
+    public static function get_all_plans(): array
+    {
+        global $wpdb;
+        return $wpdb->get_results("SELECT * FROM " . self::saas_table('plans') . " WHERE active = 1 ORDER BY price_monthly ASC");
+    }
+
     public static function get_stats(): array
     {
         global $wpdb;
@@ -147,6 +364,32 @@ class DB
             'consolation' => (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$plays_table} WHERE result = %s", 'consolation')),
             'leads' => (int) $wpdb->get_var("SELECT COUNT(*) FROM {$leads_table}"),
             'claimed' => (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$claims_table} WHERE status = %s", 'used')),
+        ];
+    }
+
+    public static function get_network_stats(): array
+    {
+        global $wpdb;
+        $companies = (int) $wpdb->get_var("SELECT COUNT(*) FROM " . self::saas_table('companies'));
+        $subscriptions = (int) $wpdb->get_var("SELECT COUNT(*) FROM " . self::saas_table('subscriptions') . " WHERE status = 'active'");
+        $plays = 0;
+        if (is_multisite()) {
+            $sites = get_sites(['number' => 0, 'fields' => 'ids']);
+            foreach ($sites as $site_id) {
+                $table = $wpdb->get_blog_prefix((int) $site_id) . 'gamehub_plays';
+                $exists = $wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $table));
+                if ($exists === $table) {
+                    $plays += (int) $wpdb->get_var("SELECT COUNT(*) FROM {$table}");
+                }
+            }
+        } else {
+            $plays = (int) $wpdb->get_var("SELECT COUNT(*) FROM " . self::table('plays'));
+        }
+
+        return [
+            'companies' => $companies,
+            'active_subscriptions' => $subscriptions,
+            'plays_total' => $plays,
         ];
     }
 

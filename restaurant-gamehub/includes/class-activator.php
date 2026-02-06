@@ -9,6 +9,8 @@ class Activator
 {
     public static function activate(bool $network_wide): void
     {
+        self::create_saas_tables();
+        DB::ensure_default_plans();
         if (is_multisite() && $network_wide) {
             $sites = get_sites(['number' => 0]);
             foreach ($sites as $site) {
@@ -23,6 +25,14 @@ class Activator
         self::create_tables();
         self::schedule_cron();
         self::add_roles();
+    }
+
+    public static function create_saas_tables(): void
+    {
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+        foreach (DB::saas_schema() as $sql) {
+            dbDelta($sql);
+        }
     }
 
     public static function create_tables(): void

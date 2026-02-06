@@ -27,9 +27,9 @@ restaurant-gamehub/
 ```
 
 ## Points clés
-- 6 jeux via shortcode `[gamehub type="..."]`.
+- Parcours SaaS : Super Admin crée des entreprises, attribue des plans (free/pro/elite) et pilote tous les espaces.
+- Création d'entreprise : génération de l'espace (site), page jeu, token public, QR et configuration initiale.
+- Dashboard entreprise : configuration du jeu, lots, validation caisse, statistiques et upgrade de plan.
 - Endpoints REST pour play, leads, validation.
-- Tables custom par sous-site.
-- Exports CSV et webhooks.
 
 Consultez `docs/INSTALLATION.md` pour l'installation complète.

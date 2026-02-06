@@ -9,6 +9,19 @@ class Admin
 {
     public static function register_menu(): void
     {
+        if (is_network_admin()) {
+            add_menu_page(
+                'GameHub SaaS',
+                'GameHub SaaS',
+                'manage_network_options',
+                'gamehub-saas',
+                [self::class, 'render_super_admin_dashboard'],
+                'dashicons-admin-multisite',
+                58
+            );
+            return;
+        }
+
         add_menu_page(
             'GameHub',
             'GameHub',
@@ -31,6 +44,122 @@ class Admin
         wp_enqueue_script('gamehub-admin');
     }
 
+    public static function render_super_admin_dashboard(): void
+    {
+        if (!current_user_can('manage_network_options')) {
+            wp_die('Unauthorized');
+        }
+
+        $companies = DB::get_all_companies();
+        $plans = DB::get_all_plans();
+        $stats = DB::get_network_stats();
+        ?>
+        <div class="wrap gamehub-dashboard">
+            <h1>GameHub SaaS — Super Admin</h1>
+
+            <section class="gamehub-card">
+                <h2>Vue globale</h2>
+                <div class="gamehub-stats">
+                    <div><strong><?php echo esc_html($stats['companies']); ?></strong><span>Entreprises</span></div>
+                    <div><strong><?php echo esc_html($stats['active_subscriptions']); ?></strong><span>Abonnements actifs</span></div>
+                    <div><strong><?php echo esc_html($stats['plays_total']); ?></strong><span>Participations réseau</span></div>
+                </div>
+            </section>
+
+            <section class="gamehub-card">
+                <h2>Créer une entreprise</h2>
+                <form method="post" action="<?php echo esc_url(network_admin_url('admin-post.php')); ?>" class="gamehub-form">
+                    <?php wp_nonce_field('gamehub_create_company'); ?>
+                    <input type="hidden" name="action" value="gamehub_create_company">
+                    <label>Nom entreprise
+                        <input type="text" name="company_name" required>
+                    </label>
+                    <label>Email propriétaire
+                        <input type="email" name="owner_email" required>
+                    </label>
+                    <label>Plan initial
+                        <select name="plan_id">
+                            <?php foreach ($plans as $plan) : ?>
+                                <option value="<?php echo esc_attr($plan->id); ?>"><?php echo esc_html($plan->name . ' (' . $plan->price_monthly . '€/mois)'); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </label>
+                    <button class="button button-primary">Créer l'entreprise</button>
+                </form>
+            </section>
+
+            <section class="gamehub-card">
+                <h2>Plans</h2>
+                <form method="post" action="<?php echo esc_url(network_admin_url('admin-post.php')); ?>" class="gamehub-form">
+                    <?php wp_nonce_field('gamehub_save_plan'); ?>
+                    <input type="hidden" name="action" value="gamehub_save_plan">
+                    <label>Code plan
+                        <input type="text" name="code" placeholder="starter" required>
+                    </label>
+                    <label>Nom
+                        <input type="text" name="name" required>
+                    </label>
+                    <label>Prix mensuel (€)
+                        <input type="number" step="0.01" min="0" name="price_monthly" required>
+                    </label>
+                    <label>Limites JSON
+                        <textarea name="limits_json" rows="4" placeholder='{"plays_per_month":1000,"games":2}'></textarea>
+                    </label>
+                    <button class="button">Ajouter plan</button>
+                </form>
+                <ul>
+                    <?php foreach ($plans as $plan) : ?>
+                        <li><strong><?php echo esc_html($plan->name); ?></strong> — <?php echo esc_html($plan->price_monthly); ?>€/mois (<?php echo esc_html($plan->code); ?>)</li>
+                    <?php endforeach; ?>
+                </ul>
+            </section>
+
+            <section class="gamehub-card">
+                <h2>Entreprises</h2>
+                <table class="widefat striped">
+                    <thead><tr><th>#</th><th>Entreprise</th><th>Plan</th><th>Statut</th><th>Espace</th><th>Actions</th></tr></thead>
+                    <tbody>
+                    <?php foreach ($companies as $company) : ?>
+                        <tr>
+                            <td><?php echo esc_html($company->id); ?></td>
+                            <td><?php echo esc_html($company->name); ?></td>
+                            <td><?php echo esc_html($company->plan_name ?: '-'); ?></td>
+                            <td><?php echo esc_html($company->status); ?></td>
+                            <td>
+                                <?php if (!empty($company->site_id) && is_multisite()) : ?>
+                                    <a href="<?php echo esc_url(get_admin_url((int) $company->site_id)); ?>" target="_blank">Ouvrir</a>
+                                <?php else : ?>
+                                    -
+                                <?php endif; ?>
+                            </td>
+                            <td>
+                                <form method="post" action="<?php echo esc_url(network_admin_url('admin-post.php')); ?>" style="display:inline-block; margin-right:6px;">
+                                    <?php wp_nonce_field('gamehub_assign_plan'); ?>
+                                    <input type="hidden" name="action" value="gamehub_assign_plan">
+                                    <input type="hidden" name="company_id" value="<?php echo esc_attr($company->id); ?>">
+                                    <select name="plan_id">
+                                        <?php foreach ($plans as $plan) : ?>
+                                            <option value="<?php echo esc_attr($plan->id); ?>" <?php selected($company->plan_code, $plan->code); ?>><?php echo esc_html($plan->name); ?></option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                    <button class="button">Changer</button>
+                                </form>
+                                <form method="post" action="<?php echo esc_url(network_admin_url('admin-post.php')); ?>" style="display:inline-block;">
+                                    <?php wp_nonce_field('gamehub_delete_company'); ?>
+                                    <input type="hidden" name="action" value="gamehub_delete_company">
+                                    <input type="hidden" name="company_id" value="<?php echo esc_attr($company->id); ?>">
+                                    <button class="button button-link-delete" onclick="return confirm('Supprimer cette entreprise ?');">Supprimer</button>
+                                </form>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </section>
+        </div>
+        <?php
+    }
+
     public static function render_dashboard(): void
     {
         $settings = get_option('gamehub_settings', []);
@@ -40,9 +169,31 @@ class Admin
         $qr_id = Utils::get_qr_id();
         $prizes_win = DB::get_prizes_by_type('win');
         $prizes_consolation = DB::get_prizes_by_type('consolation');
+        $company = DB::get_company_by_site(get_current_blog_id());
+        $subscription = $company ? DB::get_company_subscription((int) $company->id) : null;
+        $plans = DB::get_all_plans();
         ?>
         <div class="wrap gamehub-dashboard">
-            <h1>GameHub — Dashboard</h1>
+            <h1>GameHub — Dashboard Entreprise</h1>
+
+            <?php if ($subscription) : ?>
+                <section class="gamehub-card">
+                    <h2>Mon abonnement</h2>
+                    <p><strong>Plan actuel :</strong> <?php echo esc_html($subscription->plan_name); ?> (<?php echo esc_html($subscription->price_monthly); ?>€/mois)</p>
+                    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="gamehub-form">
+                        <?php wp_nonce_field('gamehub_upgrade_plan'); ?>
+                        <input type="hidden" name="action" value="gamehub_upgrade_plan">
+                        <label>Changer de plan
+                            <select name="plan_id">
+                                <?php foreach ($plans as $plan) : ?>
+                                    <option value="<?php echo esc_attr($plan->id); ?>" <?php selected($subscription->plan_id, $plan->id); ?>><?php echo esc_html($plan->name . ' - ' . $plan->price_monthly . '€/mois'); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </label>
+                        <button class="button">Mettre à niveau</button>
+                    </form>
+                </section>
+            <?php endif; ?>
 
             <section class="gamehub-card">
                 <h2>Configuration rapide</h2>
@@ -212,6 +363,92 @@ class Admin
             </form>
         </div>
         <?php
+    }
+
+    public static function handle_create_company(): void
+    {
+        check_admin_referer('gamehub_create_company');
+        if (!current_user_can('manage_network_options')) {
+            wp_die('Unauthorized');
+        }
+        $name = sanitize_text_field($_POST['company_name'] ?? '');
+        $email = sanitize_email($_POST['owner_email'] ?? '');
+        $plan_id = (int) ($_POST['plan_id'] ?? 0);
+        if ($name && $email) {
+            DB::create_company($name, $email, $plan_id);
+        }
+        wp_safe_redirect(network_admin_url('admin.php?page=gamehub-saas&created=1'));
+        exit;
+    }
+
+    public static function handle_delete_company(): void
+    {
+        check_admin_referer('gamehub_delete_company');
+        if (!current_user_can('manage_network_options')) {
+            wp_die('Unauthorized');
+        }
+        $company_id = (int) ($_POST['company_id'] ?? 0);
+        if ($company_id) {
+            DB::delete_company($company_id);
+        }
+        wp_safe_redirect(network_admin_url('admin.php?page=gamehub-saas&deleted=1'));
+        exit;
+    }
+
+    public static function handle_assign_plan(): void
+    {
+        check_admin_referer('gamehub_assign_plan');
+        if (!current_user_can('manage_network_options')) {
+            wp_die('Unauthorized');
+        }
+        $company_id = (int) ($_POST['company_id'] ?? 0);
+        $plan_id = (int) ($_POST['plan_id'] ?? 0);
+        if ($company_id && $plan_id) {
+            DB::assign_plan($company_id, $plan_id);
+        }
+        wp_safe_redirect(network_admin_url('admin.php?page=gamehub-saas&plan=1'));
+        exit;
+    }
+
+    public static function handle_save_plan(): void
+    {
+        check_admin_referer('gamehub_save_plan');
+        if (!current_user_can('manage_network_options')) {
+            wp_die('Unauthorized');
+        }
+        global $wpdb;
+        $code = sanitize_key($_POST['code'] ?? '');
+        $name = sanitize_text_field($_POST['name'] ?? '');
+        $price = (float) ($_POST['price_monthly'] ?? 0);
+        $limits = wp_unslash($_POST['limits_json'] ?? '');
+        if ($code && $name) {
+            $decoded = json_decode($limits, true);
+            $wpdb->insert(DB::saas_table('plans'), [
+                'code' => $code,
+                'name' => $name,
+                'price_monthly' => $price,
+                'limits_json' => is_array($decoded) ? wp_json_encode($decoded) : wp_json_encode([]),
+                'active' => 1,
+                'created_at' => Utils::now_mysql(),
+            ]);
+        }
+        wp_safe_redirect(network_admin_url('admin.php?page=gamehub-saas&plan_created=1'));
+        exit;
+    }
+
+    public static function handle_upgrade_plan(): void
+    {
+        check_admin_referer('gamehub_upgrade_plan');
+        if (!current_user_can('gamehub_manage')) {
+            wp_die('Unauthorized');
+        }
+        $plan_id = (int) ($_POST['plan_id'] ?? 0);
+        $company = DB::get_company_by_site(get_current_blog_id());
+        if ($company && $plan_id) {
+            DB::assign_plan((int) $company->id, $plan_id);
+        }
+        wp_safe_redirect(admin_url('admin.php?page=gamehub-dashboard&upgraded=1'));
+        exit;
     }
 
     public static function handle_activate_now(): void
